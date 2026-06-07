@@ -5,6 +5,7 @@ class Message(BaseModel):
     role: str
     content: str
 
+
 class Request(BaseModel):
     model: str
     messages: list[Message]
