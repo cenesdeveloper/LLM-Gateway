@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 
-from .schemas import Message, Request
+from .schemas import Request
+from .simulator import generate
+
 
 app = FastAPI()
 
@@ -12,6 +14,9 @@ def health_check():
 
 @app.post("/v1/chat/completions")
 def create_chat_completion(request: Request):
+    messages_as_dicts = [m.model_dump() for m in request.messages]
+    result = generate(messages_as_dicts, request.model, request.max_tokens)
+
     return {
         "id": "chatcmpl-B9MBs8CjcvOU2jLn4n570S5qMJKcT",
         "object": "chat.completion",
@@ -22,20 +27,14 @@ def create_chat_completion(request: Request):
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": request.messages[-1].content,
-                    "refusal": None,
-                    "annotations": [],
+                    "content": result.text,
                 },
                 "finish_reason": "stop",
             }
         ],
         "usage": {
-            "prompt_tokens": 19,
-            "completion_tokens": 10,
-            "total_tokens": 29,
-            "prompt_tokens_details": {
-                "cached_tokens": 0,
-                "audio_tokens": 0,
-            },
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "total_tokens": result.prompt_tokens + result.completion_tokens,
         },
     }
