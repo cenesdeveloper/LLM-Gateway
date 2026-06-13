@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -8,4 +10,4 @@ class Message(BaseModel):
 class Request(BaseModel):
     model: str
     messages: list[Message]
-    max_tokens: int | None = None
+    max_tokens: int | None
