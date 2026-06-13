@@ -1,7 +1,8 @@
+import time, json
 from fastapi import FastAPI
-
 from .schemas import Request
-from .simulator import generate
+from .simulator import generate, generate_stream
+from fastapi.responses import StreamingResponse
 
 
 app = FastAPI()
@@ -11,10 +12,27 @@ app = FastAPI()
 def health_check():
     return {"status": "ok"}
 
+async def _sse_stream(messages_as_dicts, request):
+    created = int(time.time())
+    async for token in generate_stream(messages_as_dicts, request.model, request.max_tokens):
+        chunk = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": request.model,
+            "choices": [{"index": 0, "delta": {"content": token}, "finish_reason": None}],
+        }
+        yield f"data: {json.dumps(chunk)}\n\n"
+    yield "data: [DONE]\n\n"
 
 @app.post("/v1/chat/completions")
-def create_chat_completion(request: Request):
+async def create_chat_completion(request: Request):
     messages_as_dicts = [m.model_dump() for m in request.messages]
+
+    if request.stream:
+        return StreamingResponse(_sse_stream(messages_as_dicts, request),
+                                 media_type="text/event-stream")
+
     result = generate(messages_as_dicts, request.model, request.max_tokens)
 
     return {
