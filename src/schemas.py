@@ -5,7 +5,7 @@ class Message(BaseModel):
     role: str
     content: str
 
-class Request(BaseModel):
+class ChatCompRequest(BaseModel):
     model: str
     messages: list[Message]
     max_tokens: int | None = None

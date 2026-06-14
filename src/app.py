@@ -1,12 +1,21 @@
 import time, json
-from fastapi import FastAPI
-from .schemas import Request
+from fastapi import FastAPI, Request
+from .schemas import ChatCompRequest
 from .simulator import generate, generate_stream
 from fastapi.responses import StreamingResponse
 
+# src/app.py  (sketch of the new bits)
+from contextlib import asynccontextmanager
+from .scheduler import Scheduler
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.scheduler = Scheduler()
+    app.state.scheduler.start()
+    yield                               
+    await app.state.scheduler.stop()
 
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 def health_check():
@@ -26,14 +35,14 @@ async def _sse_stream(messages_as_dicts, request):
     yield "data: [DONE]\n\n"
 
 @app.post("/v1/chat/completions")
-async def create_chat_completion(request: Request):
+async def create_chat_completion(request: ChatCompRequest, http_req: Request):
     messages_as_dicts = [m.model_dump() for m in request.messages]
 
     if request.stream:
         return StreamingResponse(_sse_stream(messages_as_dicts, request),
                                  media_type="text/event-stream")
 
-    result = generate(messages_as_dicts, request.model, request.max_tokens)
+    result = await http_req.app.state.scheduler.submit(messages_as_dicts, request.model, request.max_tokens)
 
     return {
         "id": "chatcmpl-B9MBs8CjcvOU2jLn4n570S5qMJKcT",
