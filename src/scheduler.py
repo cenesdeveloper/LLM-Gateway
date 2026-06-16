@@ -8,6 +8,7 @@ DECODE_MS_PER_TOKEN  = 30
 DEFAULT_MAX_TOKENS   = 64
 TOKENS_PER_MESSAGE   = 3
 MAX_BATCH_SIZE       = 8     # most jobs the worker processes together at once
+NUM_REPLICAS         = 3
 
 
 
@@ -19,10 +20,13 @@ class Job:
     future: asyncio.Future   # the worker fulfills this
 
 
-class Scheduler:
-    def __init__(self):
+class Replica:
+    """One simulated GPU: its own queue + batching worker."""
+
+    def __init__(self, id):
         self.queue: asyncio.Queue[Job] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
+        self.id = id
 
     async def submit(self, messages, model, max_tokens) -> GenerationResult:
         # 1. make a Future tied to the running event loop
@@ -62,6 +66,7 @@ class Scheduler:
             results = [r for _, r in done]
             prefill_ms = PREFILL_MS_PER_TOKEN * sum(r.prompt_tokens for r in results)
             decode_ms = DECODE_MS_PER_TOKEN * max(r.completion_tokens for r in results)
+            print(f"[replica {self.id}] handling batch of {len(done)}")
             await asyncio.sleep((prefill_ms + decode_ms) / 1000.0)
 
             # 5. hand each job back its own result
@@ -75,3 +80,23 @@ class Scheduler:
     async def stop(self):
         if self._worker_task:
             self._worker_task.cancel()
+
+class Router:
+    def __init__(self):
+        self.replicas = [Replica(i) for i in range(NUM_REPLICAS)]
+        self._next = 0   # round-robin pointer
+
+    def start(self):
+        for replica in self.replicas:
+            replica.start()
+
+    async def stop(self):
+        for replica in self.replicas:
+            await replica.stop()
+
+    async def submit(self, messages, model, max_tokens):
+        # pick the next replica in rotation, then advance the pointer
+        replica = self.replicas[self._next]
+        self._next = (self._next + 1) % NUM_REPLICAS
+        return await replica.submit(messages, model, max_tokens)
+    

@@ -6,14 +6,14 @@ from fastapi.responses import StreamingResponse
 
 # src/app.py  (sketch of the new bits)
 from contextlib import asynccontextmanager
-from .scheduler import Scheduler
+from .scheduler import Router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.scheduler = Scheduler()
-    app.state.scheduler.start()
-    yield                               
-    await app.state.scheduler.stop()
+    app.state.router = Router()
+    app.state.router.start()
+    yield
+    await app.state.router.stop()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -42,7 +42,7 @@ async def create_chat_completion(request: ChatCompRequest, http_req: Request):
         return StreamingResponse(_sse_stream(messages_as_dicts, request),
                                  media_type="text/event-stream")
 
-    result = await http_req.app.state.scheduler.submit(messages_as_dicts, request.model, request.max_tokens)
+    result = await http_req.app.state.router.submit(messages_as_dicts, request.model, request.max_tokens)
 
     return {
         "id": "chatcmpl-B9MBs8CjcvOU2jLn4n570S5qMJKcT",
