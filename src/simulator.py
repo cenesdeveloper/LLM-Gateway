@@ -43,10 +43,7 @@ def generate(messages, model, max_tokens=None) -> GenerationResult:
     prefill_ms        = PREFILL_MS_PER_TOKEN * prompt_tokens
     decode_ms         = DECODE_MS_PER_TOKEN * output_tokens
     total_ms          = prefill_ms + decode_ms
-
-    #(consume the time — blocking sleep ON PURPOSE for now)
-    time.sleep(total_ms / 1000.0)
-
+    
     text = " token" * output_tokens
 
     return GenerationResult(text, prompt_tokens, output_tokens,
