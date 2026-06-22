@@ -58,3 +58,10 @@ async def generate_stream(messages, model, max_tokens=None):
     for _ in range(output_tokens):
         await asyncio.sleep(DECODE_MS_PER_TOKEN / 1000.0)
         yield " token"
+
+def prefix_key(messages):
+
+    key = "||".join(m["content"] for m in messages[:-1])
+    return key
+
+    
