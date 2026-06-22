@@ -1,7 +1,7 @@
 # src/scheduler.py
 import asyncio, time
 from dataclasses import dataclass
-from .simulator import generate, GenerationResult, count_prompt_tokens
+from .simulator import generate, GenerationResult, prefix_key, count_prompt_tokens
 
 PREFILL_MS_PER_TOKEN = 0.5
 DECODE_MS_PER_TOKEN  = 30
@@ -18,6 +18,7 @@ class Job:
     model: str
     max_tokens: int | None
     future: asyncio.Future   # the worker fulfills this
+    prefix: str
 
 
 class Replica:
@@ -27,12 +28,13 @@ class Replica:
         self.queue: asyncio.Queue[Job] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
         self.id = id
+        self.cache = set()
 
-    async def submit(self, messages, model, max_tokens) -> GenerationResult:
+    async def submit(self, messages, model, max_tokens, prefix) -> GenerationResult:
         # 1. make a Future tied to the running event loop
         future = asyncio.get_running_loop().create_future()
         # 2. enqueue the job
-        await self.queue.put(Job(messages, model, max_tokens, future))
+        await self.queue.put(Job(messages, model, max_tokens, future, prefix))
         # 3. wait until the worker fulfills it, return the result
         return await future
 
@@ -64,7 +66,13 @@ class Replica:
             # 4. one sleep for the whole batch:
             #    prefill scales with the SUM of prompts, decode with the MAX output length
             results = [r for _, r in done]
-            prefill_ms = PREFILL_MS_PER_TOKEN * sum(r.prompt_tokens for r in results)
+            prefill_ms = 0
+
+            for job, result in done:
+                if job.prefix not in self.cache:
+                    prefill_ms += PREFILL_MS_PER_TOKEN * result.prompt_tokens
+                    self.cache.add(job.prefix)
+
             decode_ms = DECODE_MS_PER_TOKEN * max(r.completion_tokens for r in results)
             print(f"[replica {self.id}] handling batch of {len(done)}")
             await asyncio.sleep((prefill_ms + decode_ms) / 1000.0)
@@ -85,6 +93,7 @@ class Router:
     def __init__(self):
         self.replicas = [Replica(i) for i in range(NUM_REPLICAS)]
         self._next = 0   # round-robin pointer
+        self.table = {}
 
     def start(self):
         for replica in self.replicas:
@@ -96,7 +105,13 @@ class Router:
 
     async def submit(self, messages, model, max_tokens):
         # pick the next replica in rotation, then advance the pointer
-        replica = self.replicas[self._next]
-        self._next = (self._next + 1) % NUM_REPLICAS
-        return await replica.submit(messages, model, max_tokens)
+    
+        prefix = prefix_key(messages)
+        if prefix in self.table:
+            replica = self.table[prefix]
+        else:
+            replica = self.replicas[self._next]
+            self._next = (self._next + 1) % NUM_REPLICAS
+            self.table[prefix] = replica
+        return await replica.submit(messages, model, max_tokens, prefix)
     
