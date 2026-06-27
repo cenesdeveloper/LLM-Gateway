@@ -2,6 +2,7 @@
 import asyncio, time
 from dataclasses import dataclass
 from .simulator import generate, GenerationResult, prefix_key, count_prompt_tokens
+from .metrics import request_count, queue_depth_gauge, batch_size_histogram, prefill_time_histogram, decode_time_histogram, tokens_per_second_counter
 
 PREFILL_MS_PER_TOKEN = 0.5
 DECODE_MS_PER_TOKEN  = 30
@@ -62,6 +63,7 @@ class Replica:
 
             if not done:
                 continue
+            batch_size_histogram.observe(len(batch))
 
             # 4. one sleep for the whole batch:
             #    prefill scales with the SUM of prompts, decode with the MAX output length
@@ -72,10 +74,15 @@ class Replica:
                 if job.prefix not in self.cache:
                     prefill_ms += PREFILL_MS_PER_TOKEN * result.prompt_tokens
                     self.cache.add(job.prefix)
+            prefill_time_histogram.observe(prefill_ms)
 
             decode_ms = DECODE_MS_PER_TOKEN * max(r.completion_tokens for r in results)
+            decode_time_histogram.observe(decode_ms)
             print(f"[replica {self.id}] handling batch of {len(done)}")
             await asyncio.sleep((prefill_ms + decode_ms) / 1000.0)
+            queue_depth_gauge.labels(replica_id=self.id).set(self.queue.qsize())
+            total_tokens = sum(r.completion_tokens for r in results)
+            tokens_per_second_counter.labels(model=batch[0].model).inc(total_tokens)
 
             # 5. hand each job back its own result
             for job, result in done:
@@ -107,6 +114,7 @@ class Router:
         # pick the next replica in rotation, then advance the pointer
     
         prefix = prefix_key(messages)
+        request_count.labels(model=model).inc()
         if prefix in self.table:
             replica = self.table[prefix]
         else:
