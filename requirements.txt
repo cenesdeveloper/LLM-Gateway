@@ -2,3 +2,4 @@ fastapi
 uvicorn
 tiktoken
 prometheus_client
+httpx
