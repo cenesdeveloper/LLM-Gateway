@@ -1,9 +1,10 @@
 import time, json
 from .metrics import request_latency_histogram, ttft_histogram, itl_histogram
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from .schemas import ChatCompRequest
 from .simulator import generate, generate_stream
 from fastapi.responses import StreamingResponse
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 # src/app.py  (sketch of the new bits)
 from contextlib import asynccontextmanager
@@ -78,3 +79,7 @@ async def create_chat_completion(request: ChatCompRequest, http_req: Request):
             "total_tokens": result.prompt_tokens + result.completion_tokens,
         },
     }
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
