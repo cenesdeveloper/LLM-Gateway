@@ -1,4 +1,5 @@
 import time, json
+from .metrics import request_latency_histogram, ttft_histogram, itl_histogram
 from fastapi import FastAPI, Request
 from .schemas import ChatCompRequest
 from .simulator import generate, generate_stream
@@ -23,7 +24,17 @@ def health_check():
 
 async def _sse_stream(messages_as_dicts, request):
     created = int(time.time())
+    start = time.time()
+    first = True
+    prev = start
+
     async for token in generate_stream(messages_as_dicts, request.model, request.max_tokens):
+        now = time.time()
+        if first:
+            ttft_histogram.observe(now - start)
+            first = False
+        else:
+            itl_histogram.observe((now - prev) * 1000)
         chunk = {
             "id": "chatcmpl-123",
             "object": "chat.completion.chunk",
@@ -31,6 +42,7 @@ async def _sse_stream(messages_as_dicts, request):
             "model": request.model,
             "choices": [{"index": 0, "delta": {"content": token}, "finish_reason": None}],
         }
+        prev = now
         yield f"data: {json.dumps(chunk)}\n\n"
     yield "data: [DONE]\n\n"
 
@@ -42,8 +54,9 @@ async def create_chat_completion(request: ChatCompRequest, http_req: Request):
         return StreamingResponse(_sse_stream(messages_as_dicts, request),
                                  media_type="text/event-stream")
 
+    start = time.time()
     result = await http_req.app.state.router.submit(messages_as_dicts, request.model, request.max_tokens)
-
+    request_latency_histogram.observe(time.time() - start)
     return {
         "id": "chatcmpl-B9MBs8CjcvOU2jLn4n570S5qMJKcT",
         "object": "chat.completion",
