@@ -8,9 +8,9 @@ PREFILL_MS_PER_TOKEN = 0.5
 DECODE_MS_PER_TOKEN  = 30
 DEFAULT_MAX_TOKENS   = 64
 TOKENS_PER_MESSAGE   = 3
-MAX_BATCH_SIZE       = 8     # most jobs the worker processes together at once
+MAX_BATCH_SIZE       = 8  
 NUM_REPLICAS         = 3
-
+MAX_QUEUE_DEPTH = 16
 
 
 @dataclass
@@ -26,7 +26,7 @@ class Replica:
     """One simulated GPU: its own queue + batching worker."""
 
     def __init__(self, id):
-        self.queue: asyncio.Queue[Job] = asyncio.Queue()
+        self.queue: asyncio.Queue[Job] = asyncio.Queue(maxsize=MAX_QUEUE_DEPTH)
         self._worker_task: asyncio.Task | None = None
         self.id = id
         self.cache = set()
@@ -35,8 +35,11 @@ class Replica:
         # 1. make a Future tied to the running event loop
         future = asyncio.get_running_loop().create_future()
         # 2. enqueue the job
-        await self.queue.put(Job(messages, model, max_tokens, future, prefix))
+        try:
+            self.queue.put_nowait(Job(messages, model, max_tokens, future, prefix))
         # 3. wait until the worker fulfills it, return the result
+        except asyncio.QueueFull:
+            raise RuntimeError("queue full")
         return await future
 
     async def _worker(self):

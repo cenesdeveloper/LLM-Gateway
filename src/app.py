@@ -1,6 +1,6 @@
 import time, json
 from .metrics import request_latency_histogram, ttft_histogram, itl_histogram
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, HTTPException
 from .schemas import ChatCompRequest
 from .simulator import generate, generate_stream
 from fastapi.responses import StreamingResponse
@@ -56,7 +56,11 @@ async def create_chat_completion(request: ChatCompRequest, http_req: Request):
                                  media_type="text/event-stream")
 
     start = time.time()
-    result = await http_req.app.state.router.submit(messages_as_dicts, request.model, request.max_tokens)
+    try:
+        result = await http_req.app.state.router.submit(messages_as_dicts, request.model, request.max_tokens)
+    except RuntimeError:
+        raise HTTPException(status_code=429, detail="Too many requests")
+    
     request_latency_histogram.observe(time.time() - start)
     return {
         "id": "chatcmpl-B9MBs8CjcvOU2jLn4n570S5qMJKcT",
