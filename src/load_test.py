@@ -59,4 +59,5 @@ async def main():
     print(f"p50: {p50:.3f}s  p99: {p99:.3f}s  throughput: {throughput:.1f} req/s")
     print(f"completed: {len(latencies)}  rejected: {len(errors)}  codes: {dict(codes)}")
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

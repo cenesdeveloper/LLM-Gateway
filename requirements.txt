@@ -3,3 +3,4 @@ uvicorn
 tiktoken
 prometheus_client
 httpx
+pytest
